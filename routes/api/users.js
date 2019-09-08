@@ -1,9 +1,16 @@
 const express = require('express');
 const router = express.Router();
+const gravatar = require('gravatar');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const config = require('config');
 const {
     check,
     validationResult
 } = require('express-validator');
+
+//User Model
+const User = require('../../models/User');
 
 //@route    POST api/users
 //@desc     Register User
@@ -19,7 +26,7 @@ router.post(
             min: 6
         })
     ],
-    (req, res) => {
+    async (req, res) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
             return res.status(400).json({
@@ -27,14 +34,72 @@ router.post(
             });
         }
 
+        const {
+            name,
+            email,
+            password
+        } = req.body
         //see if user exists
+        try {
+            let user = await User.findOne({
+                email
+            });
 
-        //get users gravatar
+            if (user) {
+                return res.status(400).json({
+                    errors: [{
+                        msg: 'User alread exists'
+                    }]
+                });
+            }
 
-        //encrypt password 
 
-        //return json webtoken
-        res.send('User route')
+            //get users gravatar
+            const avatar = gravatar.url(email, {
+                s: '200',
+                r: 'pg',
+                d: 'mm'
+            })
+
+            user = new User({
+                name,
+                email,
+                avatar,
+                password
+            })
+
+            //encrypt password 
+            const salt = await bcrypt.genSalt(10);
+
+            user.password = await bcrypt.hash(password, salt);
+
+            await user.save();
+
+            //return json webtoken
+            const payload = {
+                user: {
+                    id: user.id
+                }
+            }
+
+            jwt.sign(
+                payload,
+                config.get('jwtSecret'), {
+                    expiresIn: 360000
+                },
+                (err, token) => {
+                    if (err) throw err;
+                    res.json({
+                        token
+                    });
+                }
+            )
+
+        } catch (err) {
+            console.error(err.message);
+            res.status(500).send('Server error');
+        }
+
     });
 
 module.exports = router;
